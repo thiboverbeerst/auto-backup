@@ -2,7 +2,8 @@
 # Customize these variables:
 $source       = "\\NAS\SharedFolder"    # Path to your shared NAS drive
 $destDrive    = "E:"                    # External drive letter
-$backupFolder = "$destDrive\Backup"     # Backup folder on the external drive
+
+$backupFolder = "$destDrive\backup"     # Backup folder on the external drive
 $logFile      = "$destDrive\backup_log.txt"    # Log file at the drive root
 $manifestFile = "$destDrive\manifest.txt"      # Manifest file at the drive root
 
