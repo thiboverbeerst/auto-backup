@@ -1,16 +1,34 @@
-# Backup Script: Auto-backup NAS share to external drive
-# Customize these variables:
-$source       = "\\NAS\SharedFolder"    # Path to your shared NAS drive
-$destDrive    = "E:"                    # External drive letter
+param(
+    [Parameter(Mandatory=$true)]
+    [string]$SerialNumber,
+    
+    [Parameter(Mandatory=$true)]
+    [string]$Source
+)
 
-$backupFolder = "$destDrive\backup"     # Backup folder on the external drive
-$logFile      = "$destDrive\backup_log.txt"    # Log file at the drive root
-$manifestFile = "$destDrive\manifest.txt"      # Manifest file at the drive root
+# Controleer of de bronlocatie bestaat
+if (-not (Test-Path $Source)) {
+    Write-Output "Bronlocatie '$Source' bestaat niet. Stoppen."
+    exit 1
+}
 
-# Get current date/time for logs/metadata
-$date = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+# Zoek het externe station op basis van het volume-serialnummer
+$drive = Get-WmiObject -Class Win32_Volume | Where-Object { $_.SerialNumber -eq $SerialNumber -and $_.DriveLetter -ne $null }
+if (-not $drive) {
+    Write-Output "Externe drive met serial '$SerialNumber' niet gevonden. Stoppen."
+    exit 1
+}
 
-# Function to write messages to the log file
+$destDrive = $drive.DriveLetter  # Bijvoorbeeld "E:"
+Write-Output "Gevonden externe drive: $destDrive"
+
+# Definieer backup- en logpaden op het externe station
+$backupFolder = Join-Path $destDrive "backup"
+$logFile      = Join-Path $destDrive "backup_log.txt"
+$manifestFile = Join-Path $destDrive "manifest.txt"
+$robocopyLog  = Join-Path $destDrive "robocopy_log.txt"
+
+# Functie om berichten naar het logbestand te schrijven
 function Write-Log {
     param ([string]$message)
     $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
@@ -19,44 +37,47 @@ function Write-Log {
     Add-Content -Path $logFile -Value $entry
 }
 
-Write-Log "Backup process started."
+Write-Log "Backup gestart."
+Write-Log "Bron: $Source"
+Write-Log "Doel: $backupFolder"
 
-# Remove existing backup folder if it exists
+# Verwijder de bestaande backup (indien aanwezig)
 if (Test-Path $backupFolder) {
-    Write-Log "Existing backup folder found. Removing $backupFolder."
+    Write-Log "Bestaande backup gevonden. Verwijderen van $backupFolder."
     Remove-Item -Path $backupFolder -Recurse -Force
 }
 
-# Create a new backup folder
+# Maak de nieuwe backupfolder aan
 New-Item -ItemType Directory -Path $backupFolder | Out-Null
-Write-Log "Created new backup folder at $backupFolder."
+Write-Log "Nieuwe backupfolder aangemaakt op $backupFolder."
 
-# Use Robocopy to mirror the source to the backup folder
-$robocopyLog = "$destDrive\robocopy_log.txt"
-Write-Log "Starting file copy with Robocopy."
-$rc = robocopy $source $backupFolder /MIR /NP /LOG:$robocopyLog /NFL /NDL /NJH /NJS
-Write-Log "Robocopy completed with exit code $rc."
+# Start de backup met Robocopy (MIR: spiegelt de bron)
+Write-Log "Start Robocopy van $Source naar $backupFolder."
+$rc = robocopy $Source $backupFolder /MIR /NP /LOG:$robocopyLog /NFL /NDL /NJH /NJS
+Write-Log "Robocopy voltooid (exitcode: $rc)."
 
-# Generate a manifest file with backup metadata
-Write-Log "Generating manifest file."
+# Genereer een manifest met metadata
+Write-Log "Genereer manifestbestand."
 $files = Get-ChildItem -Path $backupFolder -Recurse -File
 $fileCount = $files.Count
 $totalSizeBytes = ($files | Measure-Object -Property Length -Sum).Sum
-$totalSizeMB = [Math]::Round($totalSizeBytes / 1MB, 2)
+$totalSizeMB = if ($totalSizeBytes) { [Math]::Round($totalSizeBytes / 1MB, 2) } else { 0 }
+$date = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
 
 $manifestContent = @"
 Backup Manifest
----------------------
-Backup Date: $date
-Source: $source
-Destination: $backupFolder
-Number of Files: $fileCount
-Total Size: $totalSizeMB MB
+-------------------------
+Backup Datum   : $date
+Bron           : $Source
+Doel           : $backupFolder
+Externe Drive  : $destDrive (Serial: $SerialNumber)
+Aantal Bestanden: $fileCount
+Totale Grootte : $totalSizeMB MB
 
-Backup completed successfully.
+Backup succesvol afgerond.
 "@
 
 Set-Content -Path $manifestFile -Value $manifestContent
-Write-Log "Manifest file created at $manifestFile."
+Write-Log "Manifestbestand aangemaakt op $manifestFile."
 
-Write-Log "Backup process completed."
+Write-Log "Backup proces voltooid."
